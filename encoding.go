@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"strings"
 )
 
 // Marshaling is a basic interface representing fixed-length (or known-length)
-// cryptographic objects or structures having a built-in binary encoding.
+// objects or structures having a built-in binary encoding.
 type Marshalling interface {
 	// Encode the contents of this object and write it to an io.Writer.
 	MarshalTo(w io.Writer) (int, error)
@@ -21,19 +20,16 @@ type Marshalling interface {
 // Constructor represents a generic constructor
 // that takes a reflect.Type, typically for an interface type,
 // and constructs some suitable concrete instance of that type.
-// The crypto library uses this capability to support
-// dynamic instantiation of cryptographic objects of the concrete type
-// appropriate for a given abstract.Suite.
 type Constructor interface {
 	New(t reflect.Type) interface{}
 }
 
 // BinaryEncoding represents a simple binary encoding
-// suitable for reading and writing fixed-length cryptographic objects.
+// suitable for reading and writing fixed-length objects.
 // The interface allows reading and writing composite types
 // such as structs, arrays, and slices,
 // but the encoded size of any object must be completely defined
-// by the type and size of the object itself and the ciphersuite in use.
+// by the type and size of the object itself.
 //
 // Slices must be instantiated to the correct length
 // before either reading or writing:
@@ -49,16 +45,11 @@ type BinaryEncoding struct {
 
 // NewBinaryEncoding returns a BinaryEncoding. The given c Constructor
 // can be nil. In that case, the BinaryEncoding MUST not be used to Read() any
-// structure can contains any interface fields implementing the Marshalling
+// structure that contains any interface fields implementing the Marshalling
 // interface, because BinaryEncoding won't be able to create the concrete type
 // of the field.
 func NewBinaryEncoding(c Constructor) *BinaryEncoding {
 	return &BinaryEncoding{Constructor: c}
-}
-
-func prindent(depth int, format string, a ...interface{}) {
-	fmt.Print(strings.Repeat("  ", depth))
-	fmt.Printf(format, a...)
 }
 
 type decoder struct {
@@ -84,17 +75,14 @@ func (e BinaryEncoding) Read(r io.Reader, objs ...interface{}) error {
 }
 
 func (de *decoder) value(v reflect.Value, depth int) error {
-
 	// Does the object support our self-decoding interface?
 	obj := v.Interface()
 	if e, ok := obj.(Marshalling); ok {
 		_, err := e.UnmarshalFrom(de.r)
-		//prindent(depth, "decode: %s\n", e.String())
 		return err
 	}
-	var err error
+
 	// Otherwise, reflectively handle composite types.
-	//prindent(depth, "%s: %s\n", v.Kind().String(), v.Type().String())
 	switch v.Kind() {
 
 	case reflect.Interface:
@@ -118,7 +106,7 @@ func (de *decoder) value(v reflect.Value, depth int) error {
 	case reflect.Struct:
 		l := v.NumField()
 		for i := 0; i < l; i++ {
-			if err = de.value(v.Field(i), depth+1); err != nil {
+			if err := de.value(v.Field(i), depth+1); err != nil {
 				return err
 			}
 		}
@@ -131,7 +119,7 @@ func (de *decoder) value(v reflect.Value, depth int) error {
 	case reflect.Array:
 		l := v.Len()
 		for i := 0; i < l; i++ {
-			if err = de.value(v.Index(i), depth+1); err != nil {
+			if err := de.value(v.Index(i), depth+1); err != nil {
 				return err
 			}
 		}
@@ -155,18 +143,18 @@ func (de *decoder) value(v reflect.Value, depth int) error {
 
 		return binary.Read(de.r, binary.BigEndian, v.Addr().Interface())
 	}
-	return err
+	return nil
 }
 
 type encoder struct {
 	w io.Writer
 }
 
-// Write a data structure containing cryptographic objects,
-// using their built-in binary serialization, to an io.Writer.
-// Supports writing of Points, Scalars,
-// basic fixed-length data types supported by encoding/binary/Write(),
-// and structs, arrays, and slices containing all of these types.
+// Write a data structure containing objects, using their built-in
+// binary serialization to an io.Writer. Supports writing objects
+// which implement interface Marshalling, scalars, basic fixed-length
+// data types supported by encoding/binary/Write(), and structs,
+// arrays, and slices containing all of these types.
 func (e BinaryEncoding) Write(w io.Writer, objs ...interface{}) error {
 	en := encoder{w}
 	for i := 0; i < len(objs); i++ {
@@ -181,18 +169,17 @@ func (en *encoder) value(obj interface{}, depth int) error {
 
 	// Does the object support our self-decoding interface?
 	if e, ok := obj.(Marshalling); ok {
-		//prindent(depth, "encode: %s\n", e.String())
 		_, err := e.MarshalTo(en.w)
 		return err
 	}
 
 	// Otherwise, reflectively handle composite types.
 	v := reflect.ValueOf(obj)
-	//prindent(depth, "%s: %s\n", v.Kind().String(), v.Type().String())
 	switch v.Kind() {
 
 	case reflect.Interface:
 	case reflect.Ptr:
+		println("ptr")
 		return en.value(v.Elem().Interface(), depth+1)
 
 	case reflect.Struct:
@@ -210,7 +197,6 @@ func (en *encoder) value(obj interface{}, depth int) error {
 				return err
 			}
 		}
-
 	case reflect.Int:
 		i := int32(obj.(int))
 		if int(i) != obj.(int) {
